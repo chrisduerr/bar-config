@@ -14,29 +14,34 @@ like YAML or JSON but should also allow an easy representation in Rust.
 
 # Root element of the bar
 Bar
-    # Component containers
-    ?left: [Component]
-    ?center: [Component]
-    ?right: [Component]
     # General configuration options
     !height: u8
     !monitors: [Monitor]
     ?position: Position
     ?background: Background
+
     # Default fallback values for components
-    ?component_defaults: ComponentSettings
+    ?defaults: ComponentSettings
+
+    # Component containers
+    ?left: [Component]
+    ?center: [Component]
+    ?right: [Component]
 
 # A single component/block/module in the bar
 Component
-    ?settings: ComponentSettings
     # Name used to identify which component should be loaded
-    ?name: String
-    # These extra options are passed to the component
+    !name: String
+
+    # Options available for every component
+    ?settings: ComponentSettings
+
+    # Extra options are passed to the component
     ?component_options: T
 
 # Default options available for every component
 ComponentSettings
-    ?color: (r: u8, g: u8, b: u8)
+    ?foreground: (r: u8, g: u8, b: u8, a: u8)
     ?background: Background
     ?fonts: [Font]
     ?width: u8
@@ -45,9 +50,9 @@ ComponentSettings
     ?offset_x: i8
     ?offset_y: i8
 
-# Background type enum
+# Background of a component or the bar
 Background
-    !Image(path: String) | Color(r: u8, g: u8, b: u8)
+    !Image(path: String) | Color(r: u8, g: u8, b: u8, a: u8)
 
 # Dinstinct identification for a font
 Font
@@ -62,9 +67,9 @@ Monitor
 # Border separating the bar from the rest of the WM
 Border
     !height: u8
-    !color: (r: u8, g: u8, b: u8)
+    !color: (r: u8, g: u8, b: u8, a: u8)
 
-# Bar position enum
+# Available positions for the bar
 Position
     !Top | Bottom
 ```

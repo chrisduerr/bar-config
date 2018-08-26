@@ -1,0 +1,33 @@
+language: rust
+sudo: false
+
+cache: cargo
+
+os:
+  - linux
+
+rust:
+  - stable
+  - nightly
+
+env:
+  - CLIPPY="true"
+  - CLIPPY=""
+
+install:
+  - if [ -n "$CLIPPY" ]; then rustup component add clippy-preview; rustup component add rustfmt-preview; fi
+
+matrix:
+  fast_finish: true
+  exclude:
+    - rust: stable
+      env: CLIPPY="true"
+    - rust: nightly
+      env: CLIPPY=""
+  allow_failures:
+    - rust: nightly
+
+script:
+  - if [ -n "$CLIPPY" ]; then cargo clippy --all-features --all-targets; fi
+  - if [ -n "$CLIPPY" ]; then cargo fmt -- --check; fi
+  - if [ -z "$CLIPPY" ]; then cargo test; fi

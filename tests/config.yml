@@ -1,0 +1,53 @@
+---
+height: 30
+monitors:
+  - name: "DVI-1"
+    fallback_names:
+      - "DVI-2"
+      - "DVI-3"
+position: Bottom
+background: "#ff00ff33"
+defaults:
+  foreground: "#ff00ffff"
+  background: "/home/undeadleech/programming/rust/bar-config/tests/config.yml"
+  fonts:
+    - description: Fira Mono Medium
+      size: 12
+  width: 150
+  padding: 10
+  border:
+    height: 3
+    color: "#ff00ffff"
+  offset_x: 3
+  offset_y: -5
+left:
+  - name: time
+    settings:
+      foreground: "#00000000"
+      background: "#00000000"
+      fonts: []
+      width: ~
+      padding: ~
+      border: ~
+      offset_x: -30
+      offset_y: 7
+    component_options:
+      format: "HH:mm"
+  - name: volume
+    settings: ~
+    component_options: ~
+center:
+  - name: apps
+    settings:
+      foreground: ~
+      background: ~
+      fonts: []
+      width: ~
+      padding: ~
+      border:
+        height: 5
+        color: "#ff0000ff"
+      offset_x: ~
+      offset_y: ~
+    component_options: ~
+right: []

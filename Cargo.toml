@@ -4,3 +4,13 @@ version = "0.1.0"
 authors = ["Christian Duerr <contact@christianduerr.com>"]
 
 [dependencies]
+serde_yaml = { version = "0.8.1", optional = true }
+serde_json = { version = "1.0.26", optional = true }
+toml = { version = "0.4.6", optional = true }
+serde_derive = "1.0.75"
+serde = "1.0.75"
+
+[features]
+default = ["serde_yaml"]
+json-fmt = ["serde_json"]
+toml-fmt = ["toml"]
