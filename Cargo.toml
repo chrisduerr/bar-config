@@ -1,0 +1,6 @@
+[package]
+name = "bar-config"
+version = "0.1.0"
+authors = ["Christian Duerr <contact@christianduerr.com>"]
+
+[dependencies]
