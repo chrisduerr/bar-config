@@ -12,7 +12,7 @@ use serde::{Deserialize, Serializer};
 use std::path::{Path, PathBuf};
 
 /// Root element of the bar
-#[derive(Clone, Eq, PartialEq, Hash, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct Bar {
     /// General bar configuration settings
     pub height: u8,
@@ -53,7 +53,7 @@ where
 }
 
 /// A single component/block/module in the bar
-#[derive(Clone, Eq, PartialEq, Hash, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct Component {
     /// Name used to identify which component should be loaded
     pub name: String,
@@ -71,7 +71,7 @@ pub struct Component {
 }
 
 /// Default options available for every component
-#[derive(Clone, Eq, PartialEq, Hash, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Deserialize, Serialize)]
 pub struct ComponentSettings {
     pub foreground: Option<Color>,
     pub background: Option<Background>,
@@ -85,7 +85,7 @@ pub struct ComponentSettings {
 }
 
 /// Background of a component or the bar
-#[derive(Clone, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum Background {
     Image(PathBuf),
     Color(Color),
@@ -128,14 +128,14 @@ impl Serialize for Background {
 }
 
 /// Distinct identification for a font
-#[derive(Clone, Eq, PartialEq, Hash, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Deserialize, Serialize)]
 pub struct Font {
     pub description: String,
     pub size: u8,
 }
 
 /// Distinct identification for a monitor
-#[derive(Clone, Eq, PartialEq, Hash, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Deserialize, Serialize)]
 pub struct Monitor {
     pub name: String,
     #[serde(default)]
@@ -143,21 +143,21 @@ pub struct Monitor {
 }
 
 /// Border separating the bar from the rest of the WM
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Deserialize, Serialize)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Deserialize, Serialize)]
 pub struct Border {
     pub height: u8,
     pub color: Color,
 }
 
 /// Available positions for the bar
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Deserialize, Serialize)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Deserialize, Serialize)]
 pub enum Position {
     Top,
     Bottom,
 }
 
 /// RGBA color specified as four values from 0 to 255
-#[derive(Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub struct Color {
     r: u8,
     g: u8,
@@ -226,5 +226,74 @@ impl Serialize for Color {
         S: Serializer,
     {
         serializer.serialize_str(&self.to_string())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    #[cfg(all(feature = "json-fmt", not(feature = "toml-fmt")))]
+    use serde_json as serde_fmt;
+    #[cfg(not(any(feature = "toml-fmt", feature = "json-fmt")))]
+    use serde_yaml as serde_fmt;
+    #[cfg(all(feature = "toml-fmt", not(feature = "json-fmt")))]
+    use toml as serde_fmt;
+
+    #[cfg(all(feature = "json-fmt", not(feature = "toml-fmt")))]
+    const TEST_DIR: &'static str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/json/");
+    #[cfg(not(any(feature = "toml-fmt", feature = "json-fmt")))]
+    const TEST_DIR: &'static str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/yaml/");
+    #[cfg(all(feature = "toml-fmt", not(feature = "json-fmt")))]
+    const TEST_DIR: &'static str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/toml/");
+
+    use std::fs::File;
+    use std::io::Read;
+    use std::path::Path;
+
+    use config::{Background, Bar};
+
+    #[test]
+    fn minimal_config() {
+        let path = [TEST_DIR, "minimal_config"].concat();
+
+        let mut input_text = String::new();
+        let mut file = File::open(path).unwrap();
+        file.read_to_string(&mut input_text).unwrap();
+
+        let config: Bar = serde_fmt::from_str(&input_text).unwrap();
+
+        assert_eq!(config.height, 30);
+        assert_eq!(config.monitors.len(), 1);
+        assert_eq!(config.monitors[0].name, "DVI-1");
+        assert!(config.monitors[0].fallback_names.is_empty());
+    }
+
+    // XXX: See https://github.com/alexcrichton/toml-rs/issues/258
+    #[cfg(not(feature = "toml-fmt"))]
+    #[test]
+    fn full_config() {
+        let path = [TEST_DIR, "full_config"].concat();
+
+        let mut input_text = String::new();
+        let mut file = File::open(path).unwrap();
+        file.read_to_string(&mut input_text).unwrap();
+
+        let config: Bar = serde_fmt::from_str(&input_text).unwrap();
+        let output_text = serde_fmt::to_string(&config).unwrap();
+
+        assert_eq!(input_text, output_text + "\n");
+    }
+
+    #[test]
+    fn path_in_config() {
+        let path = [TEST_DIR, "path_in_config"].concat();
+        let expected = Background::Image(Path::new("/home").canonicalize().unwrap());
+
+        let mut input_text = String::new();
+        let mut file = File::open(path).unwrap();
+        file.read_to_string(&mut input_text).unwrap();
+
+        let config: Bar = serde_fmt::from_str(&input_text).unwrap();
+
+        assert_eq!(config.background.unwrap(), expected);
     }
 }

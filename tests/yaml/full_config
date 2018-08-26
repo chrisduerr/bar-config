@@ -9,7 +9,7 @@ position: Bottom
 background: "#ff00ff33"
 defaults:
   foreground: "#ff00ffff"
-  background: "/home/undeadleech/programming/rust/bar-config/tests/config.yml"
+  background: ~
   fonts:
     - description: Fira Mono Medium
       size: 12
