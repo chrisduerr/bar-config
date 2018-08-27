@@ -16,9 +16,9 @@ like YAML or JSON but should also allow an easy representation in Rust.
 Bar
     # General configuration options
     !height: u8
-    !monitors: [Monitor]
     ?position: Position
     ?background: Background
+    !monitors: [Monitor]
 
     # Default fallback values for components
     ?defaults: ComponentSettings
@@ -43,12 +43,12 @@ Component
 ComponentSettings
     ?foreground: (r: u8, g: u8, b: u8, a: u8)
     ?background: Background
-    ?fonts: [Font]
     ?width: u8
     ?padding: u8
-    ?border: Border
     ?offset_x: i8
     ?offset_y: i8
+    ?fonts: [Font]
+    ?border: Border
 
 # Background of a component or the bar
 Background

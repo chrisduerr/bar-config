@@ -1,0 +1,44 @@
+height = 30
+position = "Bottom"
+background = "#ff00ff33"
+
+[[monitors]]
+name = "DVI-1"
+fallback_names = ["DVI-2", "DVI-3"]
+
+[defaults]
+foreground = "#ff00ffff"
+width = 150
+padding = 10
+offset_x = 3
+offset_y = -5
+
+[[defaults.fonts]]
+description = "Fira Mono Medium"
+size = 12
+
+[defaults.border]
+height = 3
+color = "#ff00ffff"
+
+[[left]]
+name = "time"
+
+[left.settings]
+foreground = "#00000000"
+background = "#00000000"
+offset_x = -30
+offset_y = 7
+
+[left.component_options]
+format = "HH:mm"
+
+[[left]]
+name = "volume"
+
+[[center]]
+name = "apps"
+[center.settings.border]
+height = 5
+color = "#ff0000ff"
+

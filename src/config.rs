@@ -16,20 +16,20 @@ use std::path::{Path, PathBuf};
 pub struct Bar {
     /// General bar configuration settings
     pub height: u8,
-    #[serde(deserialize_with = "deserialize_monitors")]
-    pub monitors: Vec<Monitor>,
     pub position: Option<Position>,
     pub background: Option<Background>,
+    #[serde(deserialize_with = "deserialize_monitors", skip_serializing_if = "Vec::is_empty")]
+    pub monitors: Vec<Monitor>,
 
     /// Default fallback values for components
     pub defaults: Option<ComponentSettings>,
 
     /// Component containers
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub left: Vec<Component>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub center: Vec<Component>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub right: Vec<Component>,
 }
 
@@ -75,13 +75,13 @@ pub struct Component {
 pub struct ComponentSettings {
     pub foreground: Option<Color>,
     pub background: Option<Background>,
-    #[serde(default)]
-    pub fonts: Vec<Font>,
     pub width: Option<u8>,
     pub padding: Option<u8>,
-    pub border: Option<Border>,
     pub offset_x: Option<i8>,
     pub offset_y: Option<i8>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fonts: Vec<Font>,
+    pub border: Option<Border>,
 }
 
 /// Background of a component or the bar
@@ -267,8 +267,6 @@ mod test {
         assert!(config.monitors[0].fallback_names.is_empty());
     }
 
-    // XXX: See https://github.com/alexcrichton/toml-rs/issues/258
-    #[cfg(not(feature = "toml-fmt"))]
     #[test]
     fn full_config() {
         let path = [TEST_DIR, "full_config"].concat();
