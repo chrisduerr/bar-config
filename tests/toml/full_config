@@ -23,6 +23,7 @@ color = "#ff00ffff"
 
 [[left]]
 name = "time"
+text = "13:00"
 
 [left.settings]
 foreground = "#00000000"

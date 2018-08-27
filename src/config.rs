@@ -56,7 +56,10 @@ where
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct Component {
     /// Name used to identify which component should be loaded
-    pub name: String,
+    pub name: Option<String>,
+
+    // Text which will be displayed inside the component
+    pub text: Option<String>,
 
     /// Options available for all components
     pub settings: Option<ComponentSettings>,

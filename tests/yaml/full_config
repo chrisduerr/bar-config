@@ -22,6 +22,7 @@ defaults:
     color: "#ff00ffff"
 left:
   - name: time
+    text: "13:00"
     settings:
       foreground: "#00000000"
       background: "#00000000"
@@ -33,10 +34,12 @@ left:
     component_options:
       format: "HH:mm"
   - name: volume
+    text: ~
     settings: ~
     component_options: ~
 center:
   - name: apps
+    text: ~
     settings:
       foreground: ~
       background: ~

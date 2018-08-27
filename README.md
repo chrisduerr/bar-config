@@ -31,7 +31,10 @@ Bar
 # A single component/block/module in the bar
 Component
     # Name used to identify which component should be loaded
-    !name: String
+    ?name: String
+
+    # Text which will be displayed inside the component
+    ?text: String
 
     # Options available for every component
     ?settings: ComponentSettings
@@ -73,3 +76,13 @@ Border
 Position
     !Top | Bottom
 ```
+
+## Config->Bar communication
+
+A configuration file allows creating a static version of any bar,
+however it does not allow modification of any element inside the bar.
+
+To allow modification, the bar configuration spawns the processes required
+for each component, these then can modify the bar configuration directly.
+Once the bar configuration is modified, an event is sent to the bar to
+notify it that the configuration file is dirty and needs to be redrawn.
