@@ -1,24 +1,30 @@
 #[cfg(all(feature = "json-fmt", not(feature = "toml-fmt")))]
-use serde_json;
+use serde_json as serde_fmt;
 #[cfg(not(any(feature = "toml-fmt", feature = "json-fmt")))]
-use serde_yaml;
+use serde_yaml as serde_fmt;
 #[cfg(all(feature = "toml-fmt", not(feature = "json-fmt")))]
-use toml;
+use toml as serde_fmt;
 
 use serde::de::{Deserializer, Error};
-use serde::ser::Serialize;
-use serde::{Deserialize, Serializer};
+use serde::Deserialize;
 
+use std::fs::File;
+use std::io::{Error as IOError, ErrorKind, Read};
 use std::path::{Path, PathBuf};
 
+use crate::components::Component;
+
 /// Root element of the bar
-#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Deserialize)]
 pub struct Bar {
     /// General bar configuration settings
     pub height: u8,
     pub position: Option<Position>,
     pub background: Option<Background>,
-    #[serde(deserialize_with = "deserialize_monitors", skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        deserialize_with = "deserialize_monitors",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub monitors: Vec<Monitor>,
 
     /// Default fallback values for components
@@ -26,15 +32,31 @@ pub struct Bar {
 
     /// Component containers
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub left: Vec<Component>,
+    pub left: Vec<Box<Component>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub center: Vec<Component>,
+    pub center: Vec<Box<Component>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub right: Vec<Component>,
+    pub right: Vec<Box<Component>>,
+}
+
+impl Bar {
+    /// Load a new configuration file.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error when the specified file can not be read.
+    /// It will also return an [`InvalidData`] error when the file content cannot be parsed.
+    ///
+    /// [`InvalidData`]: https://doc.rust-lang.org/std/io/enum.ErrorKind.html#variant.InvalidData
+    pub fn load<P: AsRef<Path>>(file: P) -> Result<Self, IOError> {
+        let mut content = String::new();
+        File::open(&file).and_then(|mut f| f.read_to_string(&mut content))?;
+        serde_fmt::from_str(&content).map_err(|e| IOError::new(ErrorKind::InvalidData, e))
+    }
 }
 
 // Require at least one monitor
-fn deserialize_monitors<'a, D>(deserializer: D) -> ::std::result::Result<Vec<Monitor>, D::Error>
+fn deserialize_monitors<'a, D>(deserializer: D) -> Result<Vec<Monitor>, D::Error>
 where
     D: Deserializer<'a>,
 {
@@ -52,29 +74,8 @@ where
     }
 }
 
-/// A single component/block/module in the bar
-#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
-pub struct Component {
-    /// Name used to identify which component should be loaded
-    pub name: Option<String>,
-
-    // Text which will be displayed inside the component
-    pub text: Option<String>,
-
-    /// Options available for all components
-    pub settings: Option<ComponentSettings>,
-
-    /// Extra options which are passed to the component
-    #[cfg(not(any(feature = "toml-fmt", feature = "json-fmt")))]
-    pub component_options: Option<serde_yaml::Value>,
-    #[cfg(all(feature = "json-fmt", not(feature = "toml-fmt")))]
-    pub component_options: Option<serde_json::Value>,
-    #[cfg(all(feature = "toml-fmt", not(feature = "json-fmt")))]
-    pub component_options: Option<toml::Value>,
-}
-
 /// Default options available for every component
-#[derive(Clone, Debug, Eq, PartialEq, Hash, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Deserialize)]
 pub struct ComponentSettings {
     pub foreground: Option<Color>,
     pub background: Option<Background>,
@@ -95,7 +96,7 @@ pub enum Background {
 }
 
 impl<'de> Deserialize<'de> for Background {
-    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Background, D::Error>
+    fn deserialize<D>(deserializer: D) -> Result<Background, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -117,28 +118,15 @@ impl<'de> Deserialize<'de> for Background {
     }
 }
 
-impl Serialize for Background {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let text = match *self {
-            Background::Image(ref path) => path.to_string_lossy().into_owned(),
-            Background::Color(ref color) => color.to_string(),
-        };
-        serializer.serialize_str(&text)
-    }
-}
-
 /// Distinct identification for a font
-#[derive(Clone, Debug, Eq, PartialEq, Hash, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Deserialize)]
 pub struct Font {
     pub description: String,
     pub size: u8,
 }
 
 /// Distinct identification for a monitor
-#[derive(Clone, Debug, Eq, PartialEq, Hash, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Deserialize)]
 pub struct Monitor {
     pub name: String,
     #[serde(default)]
@@ -146,14 +134,14 @@ pub struct Monitor {
 }
 
 /// Border separating the bar from the rest of the WM
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Deserialize, Serialize)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Deserialize)]
 pub struct Border {
     pub height: u8,
     pub color: Color,
 }
 
 /// Available positions for the bar
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Deserialize, Serialize)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Deserialize)]
 pub enum Position {
     Top,
     Bottom,
@@ -212,7 +200,7 @@ impl ToString for Color {
 }
 
 impl<'de> Deserialize<'de> for Color {
-    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Color, D::Error>
+    fn deserialize<D>(deserializer: D) -> Result<Color, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -220,81 +208,5 @@ impl<'de> Deserialize<'de> for Color {
             Ok(color_string) => Color::from_str(&color_string).map_err(D::Error::custom),
             Err(err) => Err(err),
         }
-    }
-}
-
-impl Serialize for Color {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&self.to_string())
-    }
-}
-
-#[cfg(test)]
-mod test {
-    #[cfg(all(feature = "json-fmt", not(feature = "toml-fmt")))]
-    use serde_json as serde_fmt;
-    #[cfg(not(any(feature = "toml-fmt", feature = "json-fmt")))]
-    use serde_yaml as serde_fmt;
-    #[cfg(all(feature = "toml-fmt", not(feature = "json-fmt")))]
-    use toml as serde_fmt;
-
-    #[cfg(all(feature = "json-fmt", not(feature = "toml-fmt")))]
-    const TEST_DIR: &'static str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/json/");
-    #[cfg(not(any(feature = "toml-fmt", feature = "json-fmt")))]
-    const TEST_DIR: &'static str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/yaml/");
-    #[cfg(all(feature = "toml-fmt", not(feature = "json-fmt")))]
-    const TEST_DIR: &'static str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/toml/");
-
-    use std::fs::File;
-    use std::io::Read;
-    use std::path::Path;
-
-    use config::{Background, Bar};
-
-    #[test]
-    fn minimal_config() {
-        let path = [TEST_DIR, "minimal_config"].concat();
-
-        let mut input_text = String::new();
-        let mut file = File::open(path).unwrap();
-        file.read_to_string(&mut input_text).unwrap();
-
-        let config: Bar = serde_fmt::from_str(&input_text).unwrap();
-
-        assert_eq!(config.height, 30);
-        assert_eq!(config.monitors.len(), 1);
-        assert_eq!(config.monitors[0].name, "DVI-1");
-        assert!(config.monitors[0].fallback_names.is_empty());
-    }
-
-    #[test]
-    fn full_config() {
-        let path = [TEST_DIR, "full_config"].concat();
-
-        let mut input_text = String::new();
-        let mut file = File::open(path).unwrap();
-        file.read_to_string(&mut input_text).unwrap();
-
-        let config: Bar = serde_fmt::from_str(&input_text).unwrap();
-        let output_text = serde_fmt::to_string(&config).unwrap();
-
-        assert_eq!(input_text, output_text + "\n");
-    }
-
-    #[test]
-    fn path_in_config() {
-        let path = [TEST_DIR, "path_in_config"].concat();
-        let expected = Background::Image(Path::new("/home").canonicalize().unwrap());
-
-        let mut input_text = String::new();
-        let mut file = File::open(path).unwrap();
-        file.read_to_string(&mut input_text).unwrap();
-
-        let config: Bar = serde_fmt::from_str(&input_text).unwrap();
-
-        assert_eq!(config.background.unwrap(), expected);
     }
 }

@@ -1,4 +1,0 @@
-background = "/home"
-height = 30
-[[monitors]]
-    name = "DVI-1"

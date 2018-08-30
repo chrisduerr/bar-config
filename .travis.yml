@@ -31,5 +31,3 @@ script:
   - if [ -n "$CLIPPY" ]; then cargo clippy --all-targets; fi
   - if [ -n "$CLIPPY" ]; then cargo fmt -- --check; fi
   - if [ -z "$CLIPPY" ]; then cargo test; fi
-  - if [ -z "$CLIPPY" ]; then cargo test --features "toml-fmt"; fi
-  - if [ -z "$CLIPPY" ]; then cargo test --features "json-fmt"; fi
