@@ -18,7 +18,7 @@ use crate::components::clock::Clock;
 use crate::components::undynamic::Undynamic;
 use crate::config::ComponentSettings;
 
-const COMPONENT_INDEX: AtomicUsize = AtomicUsize::new(0);
+static COMPONENT_INDEX: AtomicUsize = AtomicUsize::new(0);
 
 pub(crate) type ComponentStream = Box<Stream<Item = ComponentID, Error = ()> + Send>;
 

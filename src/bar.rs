@@ -18,7 +18,7 @@ use std::thread;
 use crate::components::{Component, ComponentID, ComponentStream};
 use crate::config::Config;
 
-const PATH_LOAD_ORDER: [&'static str; 3] = [
+const PATH_LOAD_ORDER: [&str; 3] = [
     "{config}/{name}.{ext}",
     "{home}/.{name}.{ext}",
     "/etc/{name}/{name}.{ext}",
@@ -292,6 +292,7 @@ impl Bar {
 pub fn config_file(name: &str) -> Result<File, IOError> {
     for path in &PATH_LOAD_ORDER[..] {
         let mut path = path.to_string();
+        #[allow(ifs_same_cond)]
         let extension = if cfg!(feature = "toml-fmt") && !cfg!(feature = "json-fmt") {
             "toml"
         } else if cfg!(feature = "json-fmt") && !cfg!(feature = "toml-fmt") {
