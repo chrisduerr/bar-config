@@ -1,23 +1,45 @@
-#[cfg(all(feature = "json-fmt", not(feature = "toml-fmt")))]
-use serde_json as serde_fmt;
-#[cfg(not(any(feature = "toml-fmt", feature = "json-fmt")))]
-use serde_yaml as serde_fmt;
-#[cfg(all(feature = "toml-fmt", not(feature = "json-fmt")))]
-use toml as serde_fmt;
+//! Bar configuration state.
+//!
+//! This module contains everything required to express the any state of the bar. The root
+//! element ([`Config`]) can be accessed through the [`Bar`] using the [`load`] and [`lock`] methods.
+//!
+//! # Examples
+//!
+//! ```
+//! use bar_config::Bar;
+//! use std::io::Cursor;
+//!
+//! let config_file = Cursor::new(String::from(
+//!     "height: 30\n\
+//!      monitors:\n\
+//!       - { name: \"DVI-1\" }"
+//! ));
+//!
+//! let bar = Bar::load(config_file).unwrap();
+//! let config = bar.lock();
+//!
+//! assert_eq!(config.height, 30);
+//! assert_eq!(config.monitors.len(), 1);
+//! assert_eq!(config.monitors[0].name, "DVI-1");
+//! ```
+//!
+//! [`Config`]: struct.Config.html
+//! [`Bar`]: ../struct.Bar.html
+//! [`load`]: ../struct.Bar.html#method.load
+//! [`lock`]: ../struct.Bar.html#method.lock
 
 use serde::de::{Deserializer, Error};
 use serde::Deserialize;
 
-use std::fs::File;
-use std::io::{Error as IOError, ErrorKind, Read};
 use std::path::{Path, PathBuf};
 
 use crate::components::Component;
 
-/// Root element of the bar
+/// Root element of the bar configuration.
+///
+/// This element contains the complete state of the bar necessary to render it.
 #[derive(Debug, Deserialize)]
-pub struct Bar {
-    /// General bar configuration settings
+pub struct Config {
     pub height: u8,
     pub position: Option<Position>,
     pub background: Option<Background>,
@@ -26,33 +48,13 @@ pub struct Bar {
         skip_serializing_if = "Vec::is_empty"
     )]
     pub monitors: Vec<Monitor>,
-
-    /// Default fallback values for components
     pub defaults: Option<ComponentSettings>,
-
-    /// Component containers
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub left: Vec<Box<Component>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub center: Vec<Box<Component>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub right: Vec<Box<Component>>,
-}
-
-impl Bar {
-    /// Load a new configuration file.
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error when the specified file can not be read.
-    /// It will also return an [`InvalidData`] error when the file content cannot be parsed.
-    ///
-    /// [`InvalidData`]: https://doc.rust-lang.org/std/io/enum.ErrorKind.html#variant.InvalidData
-    pub fn load<P: AsRef<Path>>(file: P) -> Result<Self, IOError> {
-        let mut content = String::new();
-        File::open(&file).and_then(|mut f| f.read_to_string(&mut content))?;
-        serde_fmt::from_str(&content).map_err(|e| IOError::new(ErrorKind::InvalidData, e))
-    }
 }
 
 // Require at least one monitor
@@ -74,7 +76,7 @@ where
     }
 }
 
-/// Default options available for every component
+/// Default options available for every component.
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Deserialize)]
 pub struct ComponentSettings {
     pub foreground: Option<Color>,
@@ -88,7 +90,7 @@ pub struct ComponentSettings {
     pub border: Option<Border>,
 }
 
-/// Background of a component or the bar
+/// Background of a component or the bar.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum Background {
     Image(PathBuf),
@@ -118,14 +120,19 @@ impl<'de> Deserialize<'de> for Background {
     }
 }
 
-/// Distinct identification for a font
+/// Distinct identification for a font.
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Deserialize)]
 pub struct Font {
     pub description: String,
     pub size: u8,
 }
 
-/// Distinct identification for a monitor
+/// Distinct identification for a monitor.
+///
+/// The [`fallback_names`] can be used to specify alternative screens which should be used when the
+/// primary monitor is not available.
+///
+/// [`fallback_names`]: #structfield.fallback_names
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Deserialize)]
 pub struct Monitor {
     pub name: String,
@@ -133,21 +140,21 @@ pub struct Monitor {
     pub fallback_names: Vec<String>,
 }
 
-/// Border separating the bar from the rest of the WM
+/// Border separating the bar from the rest of the WM.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Deserialize)]
 pub struct Border {
     pub height: u8,
     pub color: Color,
 }
 
-/// Available positions for the bar
+/// Available positions for the bar.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Deserialize)]
 pub enum Position {
     Top,
     Bottom,
 }
 
-/// RGBA color specified as four values from 0 to 255
+/// RGBA color specified as four values from 0 to 255.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub struct Color {
     r: u8,
@@ -169,21 +176,12 @@ impl Color {
             ));
         }
 
-        for c in (&string.to_uppercase()[1..]).chars() {
-            let char_code = c as u8;
-            // Make sure the char lies within the range 0..9 or A..F
-            if char_code < 48 || char_code > 70 || (char_code > 57 && char_code < 65) {
-                return Err(String::from(
-                    "hexadecimal color digits need to be within the range 0..=F",
-                ));
-            }
-        }
-
-        let r = u8::from_str_radix(&string[1..3], 16).unwrap();
-        let g = u8::from_str_radix(&string[3..5], 16).unwrap();
-        let b = u8::from_str_radix(&string[5..7], 16).unwrap();
+        let radix_error = |_| String::from("hexadecimal color digits need to be within the range 0..=F");
+        let r = u8::from_str_radix(&string[1..3], 16).map_err(radix_error)?;
+        let g = u8::from_str_radix(&string[3..5], 16).map_err(radix_error)?;
+        let b = u8::from_str_radix(&string[5..7], 16).map_err(radix_error)?;
         let a = if string.len() == 9 {
-            u8::from_str_radix(&string[7..9], 16).unwrap()
+            u8::from_str_radix(&string[7..9], 16).map_err(radix_error)?
         } else {
             255
         };

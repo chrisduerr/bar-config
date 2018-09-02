@@ -12,9 +12,9 @@ serde_json = { version = "1.0.26", optional = true }
 toml = { version = "0.4.6", optional = true }
 serde_derive = "1.0.75"
 serde = "1.0.75"
-
-[dev-dependencies]
-tempfile = "3.0.3"
+tokio = "0.1.8"
+time = "0.1.40"
+dirs = "1.0.3"
 
 [features]
 default = ["serde_yaml"]

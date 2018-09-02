@@ -1,6 +1,60 @@
-# Bar Specification
+# Bar Config
 
-This is the architecture specification for a system panel/dock/bar.
+Crate for easily creating system bars/panels/docks.
+
+The goal of this crate is to make it as simple as possible to create complex bars/panels/docks
+for linux without having to worry about anything but rendering.
+
+To get started with the crate, a new bar needs to be created. This is done using the `load`
+method in the `Bar`. Once this is acquired the `recv`, `try_recv` and `lock` methods
+should be all that is required to receive events and render the bar.
+
+# Examples
+
+```
+use std::io::Cursor;
+
+use bar_config::Bar;
+
+fn main() {
+    let input = Cursor::new(String::from(
+        "\
+         height: 30\n\
+         monitors:\n\
+         - { name: \"DVI-1\" }\n\
+         left:\n\
+         - { text: \"Hello, World!\" }\n\
+         center:\n\
+         - { name: \"clock\" }\n\
+         right:\n\
+         - { text: \"VOLUME\" }",
+    ));
+
+    let mut bar = Bar::load(input).unwrap();
+
+    print_bar(&bar);
+    loop {
+        if let Ok(_) = bar.recv() {
+            print_bar(&bar);
+        }
+    }
+}
+
+fn print_bar(bar: &Bar) {
+    let config = bar.lock();
+    for comp in config
+        .left
+        .iter()
+        .chain(&config.center)
+        .chain(&config.right)
+    {
+        if let Some(text) = comp.text() {
+            print!("{}\t", text);
+        }
+    }
+    println!("");
+}
+```
 
 ## Bar Configuration Grammar
 
@@ -40,7 +94,7 @@ Component
     ?settings: ComponentSettings
 
     # Extra options are passed to the component
-    ?component_options: T
+    ?_: T
 
 # Default options available for every component
 ComponentSettings
@@ -77,50 +131,6 @@ Position
     !Top | Bottom
 ```
 
-## Config->Bar communication
-
-A configuration file allows creating a static version of any bar,
-however it does not allow modification of an element inside the bar.
-
-To allow modification, the bar configuration polls the components for updates.
-These can then modify the bar configuration directly. Once the config is modified,
-the bar is notified that the configuration is dirty and can redraw the components.
-
-## Bar->Config communication
-
-The first interaction between bar and configuration is always the bar initializing
-the configuration. Then the configuration can setup everything necessary to supply
-the bar with updates.
-
-If an event like mouse motion is received by the bar, it is propagated to the
-config. Since components are not aware of their own position, a method needs to be
-attached to each event which allows translating the global event to a
-component-relative event. This allows both handling global events like mouse button
-releases and handling clicks/motion at specific positions.
-
-Handling only events inside the component could look like this:
-```rust
-impl Component {
-    pub fn notify(&mut self, event: Event) {
-        if let Some(event) = event.to_relative(...) {
-            // Handle only events inside the component
-        }
-    }
-}
-```
-
-## Config->Component communication
-
-Besides updating a component based on event notifications, it must also be
-possible to update components based on asynchronous callbacks or timed intervals.
-This is initiated by the config by polling all components for updates. If no
-event is available the configuration goes to sleep until at least one new event
-is available. Each event can modify the configuration which will then lead to
-the bar getting notified about the required redraw.
-
-To make it possible that timed intervals can increase granularity when required
-(for example during user interaction), it should be possible to change the
-polling rate dynamically. This can be done by providing a method which allows
-returing any interval, which is then polled every time an update is received.
+## Architecture
 
 ![Architecture](docs/arch.png)
