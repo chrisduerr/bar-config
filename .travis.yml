@@ -7,7 +7,6 @@ os:
   - linux
 
 rust:
-  - stable
   - nightly
 
 env:
@@ -19,13 +18,6 @@ install:
 
 matrix:
   fast_finish: true
-  exclude:
-    - rust: stable
-      env: CLIPPY="true"
-    - rust: nightly
-      env: CLIPPY=""
-  allow_failures:
-    - rust: nightly
 
 script:
   - if [ -n "$CLIPPY" ]; then cargo clippy --all-targets; fi
