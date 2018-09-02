@@ -17,7 +17,7 @@ impl Component for Clock {
     fn text(&self) -> Option<String> {
         match time::now().strftime("%H:%m") {
             Ok(time) => Some(format!("{}", time)),
-            Err(_) => None
+            Err(_) => None,
         }
     }
 

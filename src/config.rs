@@ -176,7 +176,8 @@ impl Color {
             ));
         }
 
-        let radix_error = |_| String::from("hexadecimal color digits need to be within the range 0..=F");
+        let radix_error =
+            |_| String::from("hexadecimal color digits need to be within the range 0..=F");
         let r = u8::from_str_radix(&string[1..3], 16).map_err(radix_error)?;
         let g = u8::from_str_radix(&string[3..5], 16).map_err(radix_error)?;
         let b = u8::from_str_radix(&string[5..7], 16).map_err(radix_error)?;
