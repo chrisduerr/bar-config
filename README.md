@@ -34,9 +34,8 @@ fn main() {
 
     print_bar(&bar);
     loop {
-        if let Ok(_) = bar.recv() {
-            print_bar(&bar);
-        }
+        let _ = bar.recv();
+        print_bar(&bar);
     }
 }
 
