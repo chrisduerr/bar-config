@@ -15,7 +15,7 @@ pub struct Clock {
 
 impl Component for Clock {
     fn text(&self) -> Option<String> {
-        match time::now().strftime("%H:%m") {
+        match time::now().strftime("%H:%M") {
             Ok(time) => Some(format!("{}", time)),
             Err(_) => None,
         }
