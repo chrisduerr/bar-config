@@ -2,15 +2,19 @@ cargo-features = ["edition"]
 
 [package]
 name = "bar-config"
-license = "MIT/Apache-2.0"
 version = "0.2.0"
+license = "MIT/Apache-2.0"
 authors = ["Christian Duerr <contact@christianduerr.com>"]
-edition = '2018'
+
+readme = "README.md"
 repository = "https://github.com/chrisduerr/bar-config"
 documentation = "https://docs.rs/bar-config"
+
 description = "Crate for easily creating system bars/panels/docks."
 keywords = ["bar", "panel", "dock", "customization", "linux"]
 categories = ["config", "encoding", "parser-implementations"]
+
+edition = '2018'
 
 [dependencies]
 serde_yaml = { version = "0.8.1", optional = true }
