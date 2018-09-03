@@ -11,12 +11,13 @@ use dirs;
 use std::fs::File;
 use std::io::{Error as IOError, ErrorKind, Read};
 use std::path::Path;
-use std::sync::mpsc::{self, Receiver, RecvError, TryRecvError};
+use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 
 use crate::components::{Component, ComponentID, ComponentStream};
 use crate::config::Config;
+use crate::event::Event;
 
 const PATH_LOAD_ORDER: [&str; 3] = [
     "{config}/{name}.{ext}",
@@ -39,8 +40,9 @@ const PATH_LOAD_ORDER: [&str; 3] = [
 /// [`try_recv`]: #method.try_recv
 #[derive(Debug)]
 pub struct Bar {
+    error_count: usize,
     config: Arc<Mutex<Config>>,
-    events: Option<Receiver<ComponentID>>,
+    events: Option<(Sender<ComponentID>, Receiver<ComponentID>)>,
 }
 
 impl Bar {
@@ -88,8 +90,9 @@ impl Bar {
             serde_fmt::from_str(&content).map_err(|e| IOError::new(ErrorKind::InvalidData, e))?;
 
         Ok(Bar {
-            config: Arc::new(Mutex::new(config)),
             events: None,
+            error_count: 0,
+            config: Arc::new(Mutex::new(config)),
         })
     }
 
@@ -98,14 +101,9 @@ impl Bar {
     /// Polls the event buffer for the next event. If no event is currently queued, this will block
     /// until the next event is received.
     ///
-    /// # Errors
-    ///
-    /// Returns an error if the event loop unexpectedly shut down. No further events will be
-    /// received once this method has failed.
-    ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// use bar_config::Bar;
     /// use std::io::Cursor;
     ///
@@ -118,27 +116,21 @@ impl Bar {
     /// ));
     ///
     /// let mut bar = Bar::load(config_file).unwrap();
-    /// if let Ok(component_id) = bar.recv() {
-    ///     println!("Component {:?} was updated!", component_id);
-    /// }
+    /// let component_id = bar.recv();
+    /// println!("Component {:?} was updated!", component_id);
     /// ```
-    pub fn recv(&mut self) -> Result<ComponentID, RecvError> {
+    pub fn recv(&mut self) -> ComponentID {
         if self.events.is_none() {
             self.events = Some(self.start_loop());
         }
 
-        self.events.as_ref().unwrap().recv()
+        self.events.as_ref().unwrap().1.recv().unwrap()
     }
 
     /// Non-Blocking poll for updates.
     ///
     /// Polls the event buffer for the next event. If no event is currently queued, this will
-    /// return an error using the [`TryRecvError::Empty`] variant.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the event loop unexpectedly shut down. No further events will be
-    /// received once this method has failed.
+    /// return `None`.
     ///
     /// # Examples
     ///
@@ -155,19 +147,22 @@ impl Bar {
     /// ));
     ///
     /// let mut bar = Bar::load(config_file).unwrap();
-    /// if let Ok(component_id) = bar.try_recv() {
+    /// if let Some(component_id) = bar.try_recv() {
     ///     println!("Component {:?} was updated!", component_id);
+    /// } else {
+    ///     println!("No new event!");
     /// }
     /// ```
-    ///
-    /// [`TryRecvError::Empty`]:
-    /// https://doc.rust-lang.org/nightly/std/sync/mpsc/enum.TryRecvError.html#variant.Empty
-    pub fn try_recv(&mut self) -> Result<ComponentID, TryRecvError> {
+    pub fn try_recv(&mut self) -> Option<ComponentID> {
         if self.events.is_none() {
             self.events = Some(self.start_loop());
         }
 
-        self.events.as_ref().unwrap().try_recv()
+        match self.events.as_ref().unwrap().1.try_recv() {
+            Ok(comp_id) => Some(comp_id),
+            Err(TryRecvError::Empty) => None,
+            Err(e) => Err(e).unwrap(),
+        }
     }
 
     /// Lock the configuration file.
@@ -197,9 +192,61 @@ impl Bar {
         self.config.lock().unwrap()
     }
 
+    /// Send an event to all components.
+    ///
+    /// Notifies all components that a new event is available. The components then have the choice
+    /// to react upon the event or ignore it completely.
+    ///
+    /// If a component handles the event and marks itself as `dirty` as a result of the event, a
+    /// new redraw request will be queued for the [`recv`] and [`try_recv`] methods.
+    ///
+    /// # Examples
+    /// ```
+    /// use bar_config::event::{Event, Point};
+    /// use bar_config::Bar;
+    /// use std::io::Cursor;
+    ///
+    /// let config_file = Cursor::new(String::from(
+    ///     "height: 30\n\
+    ///      monitors:\n\
+    ///       - { name: \"DVI-1\" }"
+    /// ));
+    ///
+    /// let mut bar = Bar::load(config_file).unwrap();
+    /// bar.notify(Event::MouseMotion(Point { x: 0, y: 0 }));
+    /// ```
+    ///
+    /// [`recv`]: #method.recv
+    /// [`try_recv`]: #method.try_recv
+    pub fn notify(&mut self, event: Event) {
+        let mut config = self.lock();
+
+        // Find all dirty components
+        let mut dirty_comps = Vec::new();
+        let mut notify = |comps: &mut Vec<Box<Component>>| {
+            for comp in comps {
+                if comp.notify(event) {
+                    dirty_comps.push(comp.id());
+                }
+            }
+        };
+        notify(&mut config.left);
+        notify(&mut config.center);
+        notify(&mut config.right);
+
+        drop(config);
+
+        if let Some((ref events_tx, _)) = self.events {
+            for comp_id in dirty_comps {
+                events_tx.send(comp_id).unwrap();
+            }
+        }
+    }
+
     // Starts the event loop in a new thread
-    fn start_loop(&self) -> Receiver<ComponentID> {
+    fn start_loop(&self) -> (Sender<ComponentID>, Receiver<ComponentID>) {
         let (events_tx, events_rx) = mpsc::channel();
+        let bar_events_tx = events_tx.clone();
 
         let config = self.config.clone();
         thread::spawn(move || {
@@ -248,7 +295,7 @@ impl Bar {
             tokio::run(combined);
         });
 
-        events_rx
+        (bar_events_tx, events_rx)
     }
 }
 

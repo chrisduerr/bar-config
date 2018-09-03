@@ -27,8 +27,8 @@ impl Component for Clock {
 
     fn stream(&self) -> ComponentStream {
         let id = self.id();
-        let task =
-            Interval::new(Instant::now(), Duration::from_millis(15000)).and_then(move |_| Ok(id));
+        let dur = Duration::from_millis(15000);
+        let task = Interval::new(Instant::now() + dur, dur).and_then(move |_| Ok(id));
         Box::new(task.map_err(|_| ()))
     }
 

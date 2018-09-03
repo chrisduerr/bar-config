@@ -38,9 +38,8 @@
 //!
 //!     print_bar(&bar);
 //!     loop {
-//!         if let Ok(_) = bar.recv() {
-//!             print_bar(&bar);
-//!         }
+//!         let _ = bar.recv();
+//!         print_bar(&bar);
 //!     }
 //! }
 //!
@@ -66,5 +65,6 @@ extern crate serde_derive;
 mod bar;
 mod components;
 pub mod config;
+pub mod event;
 
 pub use crate::bar::*;

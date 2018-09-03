@@ -11,7 +11,7 @@ should be all that is required to receive events and render the bar.
 
 # Examples
 
-```
+```rust
 use std::io::Cursor;
 
 use bar_config::Bar;
@@ -130,7 +130,3 @@ Border
 Position
     !Top | Bottom
 ```
-
-## Architecture
-
-![Architecture](docs/arch.png)

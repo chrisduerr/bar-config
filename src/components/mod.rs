@@ -17,6 +17,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use crate::components::clock::Clock;
 use crate::components::undynamic::Undynamic;
 use crate::config::ComponentSettings;
+use crate::event::Event;
 
 static COMPONENT_INDEX: AtomicUsize = AtomicUsize::new(0);
 
@@ -35,6 +36,8 @@ impl<'de> Deserialize<'de> for ComponentID {
 }
 
 pub trait Component: ::std::fmt::Debug + Send {
+    fn id(&self) -> ComponentID;
+
     fn text(&self) -> Option<String> {
         None
     }
@@ -51,7 +54,9 @@ pub trait Component: ::std::fmt::Debug + Send {
         false
     }
 
-    fn id(&self) -> ComponentID;
+    fn notify(&mut self, _event: Event) -> bool {
+        false
+    }
 }
 
 impl<'de> Deserialize<'de> for Box<dyn Component> {
