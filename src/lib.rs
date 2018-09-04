@@ -4,16 +4,15 @@
 //! for linux without having to worry about anything but rendering.
 //!
 //! To get started with the crate, a new bar needs to be created. This is done using the [`load`]
-//! method in the [`Bar`]. Once this is acquired the [`recv`], [`try_recv`] and [`lock`] methods
-//! should be all that is required to receive events and render the bar.
+//! method in the [`Bar`].
 //!
 //! [`Bar`]: struct.Bar.html
 //! [`load`]: struct.Bar.html#method.load
-//! [`recv`]: struct.Bar.html#method.recv
-//! [`try_recv`]: struct.Bar.html#method.try_recv
-//! [`lock`]: struct.Bar.html#method.lock
 //!
 //! # Examples
+//!
+//! This example shows you how to create a simple bar with three components which prints the state
+//! of every component in the console every time it's updated.
 //!
 //! ```no_run
 //! use std::io::Cursor;
@@ -21,6 +20,7 @@
 //! use bar_config::Bar;
 //!
 //! fn main() {
+//!     // Create input configuration input with three components
 //!     let input = Cursor::new(String::from(
 //!         "\
 //!          height: 30\n\
@@ -34,15 +34,22 @@
 //!          - { text: \"VOLUME\" }",
 //!     ));
 //!
+//!     // Load the bar configuration from the input
 //!     let mut bar = Bar::load(input).unwrap();
 //!
+//!     // Render the state of the bar at startup
 //!     print_bar(&bar);
+//!
 //!     loop {
+//!         // Wait for any update to the bar
 //!         let _ = bar.recv();
+//!
+//!         // Print all components every time one changes
 //!         print_bar(&bar);
 //!     }
 //! }
 //!
+//! // Prints the text of every component in the configuration
 //! fn print_bar(bar: &Bar) {
 //!     let config = bar.lock();
 //!     for comp in config
