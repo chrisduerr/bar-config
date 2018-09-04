@@ -81,6 +81,7 @@ Bar
     !height: u8
     ?position: Position
     ?background: Background
+    ?border: Border
     !monitors: [Monitor]
 
     # Default fallback values for components

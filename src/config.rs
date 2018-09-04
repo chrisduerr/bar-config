@@ -43,6 +43,7 @@ pub struct Config {
     pub height: u8,
     pub position: Option<Position>,
     pub background: Option<Background>,
+    pub border: Option<Border>,
     #[serde(
         deserialize_with = "deserialize_monitors",
         skip_serializing_if = "Vec::is_empty"
