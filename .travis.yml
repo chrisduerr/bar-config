@@ -10,16 +10,18 @@ rust:
   - nightly
 
 env:
-  - CLIPPY="true"
-  - CLIPPY=""
+  - STYLE="true"
+  - STYLE=""
 
 install:
-  - if [ -n "$CLIPPY" ]; then rustup component add clippy-preview; rustup component add rustfmt-preview; fi
+  - if [ -n "$STYLE" ]; then rustup component add clippy-preview; rustup component add rustfmt-preview; fi
 
 matrix:
   fast_finish: true
 
 script:
-  - if [ -n "$CLIPPY" ]; then cargo clippy --all-targets; fi
-  - if [ -n "$CLIPPY" ]; then cargo fmt -- --check; fi
-  - if [ -z "$CLIPPY" ]; then cargo test; fi
+  - if [ -n "$STYLE" ]; then cargo clippy --all-targets; fi
+  - if [ -n "$STYLE" ]; then cargo fmt -- --check; fi
+  - if [ -z "$STYLE" ]; then cargo test; fi
+  - if [ -z "$STYLE" ]; then cargo build --features "toml-fmt"; fi
+  - if [ -z "$STYLE" ]; then cargo build --features "json-fmt"; fi
