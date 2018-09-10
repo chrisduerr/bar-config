@@ -1,3 +1,6 @@
+#![feature(tool_lints)]
+#![allow(clippy::blacklisted_name)]
+
 use std::io::Cursor;
 
 use bar_config::bar::Bar;
@@ -37,5 +40,5 @@ fn print_bar(bar: &Bar) {
     for comp in bar.components() {
         print!("{}\t", comp.text());
     }
-    println!("");
+    println!();
 }
