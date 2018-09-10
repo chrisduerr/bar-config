@@ -50,13 +50,7 @@ fn main() {
 
 // Prints the text of every component in the configuration
 fn print_bar(bar: &Bar) {
-    let config = bar.lock();
-    for comp in config
-        .left
-        .iter()
-        .chain(&config.center)
-        .chain(&config.right)
-    {
+    for comp in bar.components() {
         if let Some(text) = comp.text() {
             print!("{}\t", text);
         }
@@ -97,16 +91,15 @@ Component
     # Name used to identify which component should be loaded
     ?name: String
 
-    # Text which will be displayed inside the component
-    ?text: String
-
-    # Options available for every component
-    ?settings: ComponentSettings
+    # State of a component (inlined struct).
+    ?ComponentSettings
 
     # Extra options are passed to the component
     ?_: T
 
 # Default options available for every component
+
+# Full component state which contains everything necessary for rendering a component.
 ComponentSettings
     ?foreground: (r: u8, g: u8, b: u8, a: u8)
     ?background: Background
@@ -115,7 +108,6 @@ ComponentSettings
     ?offset_x: i8
     ?offset_y: i8
     ?fonts: [Font]
-    ?border: Border
 
 # Background of a component or the bar
 Background
@@ -123,7 +115,7 @@ Background
 
 # Dinstinct identification for a font
 Font
-    !description: String
+    !name: String
     !size: u8
 
 # Distinct identification for a monitor

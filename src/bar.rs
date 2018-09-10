@@ -1,3 +1,7 @@
+//! Module for the bar state.
+//!
+//! This module contains the main components necessary to create and update a bar.
+
 #[cfg(all(feature = "json-fmt", not(feature = "toml-fmt")))]
 use serde_json as serde_fmt;
 #[cfg(not(any(feature = "toml-fmt", feature = "json-fmt")))]
@@ -7,42 +11,56 @@ use toml as serde_fmt;
 
 use tokio::prelude::stream::{self, Stream};
 
-use dirs;
-use std::fs::File;
 use std::io::{Error as IOError, ErrorKind, Read};
-use std::path::Path;
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
-use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 
 use crate::components::{Component, ComponentID, ComponentStream};
-use crate::config::Config;
+use crate::config::{Background, Component as ConfigComponent, Config};
 use crate::event::Event;
 
-const PATH_LOAD_ORDER: [&str; 3] = [
-    "{config}/{name}.{ext}",
-    "{home}/.{name}.{ext}",
-    "/etc/{name}/{name}.{ext}",
-];
+pub use crate::config::{Border, Monitor, Position};
 
-/// Wrapper around the bar configuration.
+/// Data model for the bar state.
 ///
-/// This is a safe wrapper around the bar configuration. It can notify consumers about any updates
-/// to the state of the configuration file.
+/// The `Bar` is the main data model used to represent the state of the bar at any point. A new
+/// `Bar` can be created by loading it from a configuration file using the [`load`] method.
 ///
-/// The `Bar` is the central point of interaction for any consumer. The [`Config`] can be  accessed
-/// through an instance of `Bar` using the [`load`] method. The [`recv`] and [`try_recv`] methods
-/// should be used to check for updates of any component of the configuration file.
+/// Using the `Bar` struct, it is possible to query for updates using the [`recv`] and [`try_recv`]
+/// methods. These will return the ID of the component which has been updated.
 ///
-/// [`Config`]: config/struct.Config.html
+/// To access any component, the [`left`], [`center`], [`right`], and [`components`] methods can be
+/// used.
+///
+/// It is required to make use of the [`notify`] method to let components know about updates to the
+/// frontend of the bar.
+///
 /// [`load`]: #method.load
+/// [`left`]: #method.left
+/// [`center`]: #method.center
+/// [`right`]: #method.right
+/// [`notify`]: #method.notify
 /// [`recv`]: #method.recv
 /// [`try_recv`]: #method.try_recv
-#[derive(Debug)]
+/// [`components`]: #method.components
 pub struct Bar {
-    error_count: usize,
-    config: Arc<Mutex<Config>>,
+    general: General,
+    left: Vec<Component>,
+    center: Vec<Component>,
+    right: Vec<Component>,
     events: Option<(Sender<ComponentID>, Receiver<ComponentID>)>,
+}
+
+/// General bar settings.
+///
+/// The general settings are used to setup the bar. These will never change during the runtime of
+/// the bar and are only required for the initial setup.
+pub struct General {
+    pub height: u8,
+    pub position: Position,
+    pub background: Background,
+    pub border: Option<Border>,
+    pub monitors: Vec<Monitor>,
 }
 
 impl Bar {
@@ -61,7 +79,7 @@ impl Bar {
     /// # Examples
     ///
     /// ```
-    /// use bar_config::Bar;
+    /// use bar_config::bar::Bar;
     /// use std::io::Cursor;
     ///
     /// let config_file = Cursor::new(String::from(
@@ -71,11 +89,10 @@ impl Bar {
     /// ));
     ///
     /// let bar = Bar::load(config_file).unwrap();
-    /// let config = bar.lock();
     ///
-    /// assert_eq!(config.height, 30);
-    /// assert_eq!(config.monitors.len(), 1);
-    /// assert_eq!(config.monitors[0].name, "DVI-1");
+    /// assert_eq!(bar.general().height, 30);
+    /// assert_eq!(bar.general().monitors.len(), 1);
+    /// assert_eq!(bar.general().monitors[0].name, "DVI-1");
     /// ```
     ///
     /// [`io::ErrorKind::InvalidData`]:
@@ -86,13 +103,37 @@ impl Bar {
         let mut content = String::new();
         config_file.read_to_string(&mut content)?;
 
-        let config =
+        let config: Config =
             serde_fmt::from_str(&content).map_err(|e| IOError::new(ErrorKind::InvalidData, e))?;
 
-        Ok(Bar {
+        let general = General {
+            height: config.height,
+            position: config.position,
+            background: config.background,
+            border: config.border,
+            monitors: config.monitors,
+        };
+
+        // Convert component struct to trait and set general fallbacks
+        let defaults = config.defaults.clone();
+        let convert = |mut comps: Vec<ConfigComponent>| {
+            comps
+                .drain(..)
+                .map(|mut c| {
+                    c.settings.fallback(&defaults);
+                    c.into()
+                }).collect()
+        };
+        let left = convert(config.left);
+        let center = convert(config.center);
+        let right = convert(config.right);
+
+        Ok(Self {
+            general,
+            left,
+            center,
+            right,
             events: None,
-            error_count: 0,
-            config: Arc::new(Mutex::new(config)),
         })
     }
 
@@ -103,8 +144,8 @@ impl Bar {
     ///
     /// # Examples
     ///
-    /// ```no_run
-    /// use bar_config::Bar;
+    /// ```
+    /// use bar_config::bar::Bar;
     /// use std::io::Cursor;
     ///
     /// let config_file = Cursor::new(String::from(
@@ -112,11 +153,12 @@ impl Bar {
     ///      monitors:\n\
     ///       - { name: \"DVI-1\" }\n\
     ///      left:\n\
-    ///       - { name: \"clock\" }"
+    ///       - { name: \"clock\", interval: 1 }"
     /// ));
     ///
     /// let mut bar = Bar::load(config_file).unwrap();
     /// let component_id = bar.recv();
+    ///
     /// println!("Component {:?} was updated!", component_id);
     /// ```
     pub fn recv(&mut self) -> ComponentID {
@@ -124,7 +166,13 @@ impl Bar {
             self.events = Some(self.start_loop());
         }
 
-        self.events.as_ref().unwrap().1.recv().unwrap()
+        // Process updates until the first dirty component is found
+        loop {
+            let comp_id = self.events.as_ref().unwrap().1.recv().unwrap();
+            if self.update_component(comp_id) {
+                return comp_id;
+            }
+        }
     }
 
     /// Non-Blocking poll for updates.
@@ -135,7 +183,7 @@ impl Bar {
     /// # Examples
     ///
     /// ```
-    /// use bar_config::Bar;
+    /// use bar_config::bar::Bar;
     /// use std::io::Cursor;
     ///
     /// let config_file = Cursor::new(String::from(
@@ -147,7 +195,9 @@ impl Bar {
     /// ));
     ///
     /// let mut bar = Bar::load(config_file).unwrap();
-    /// if let Some(component_id) = bar.try_recv() {
+    /// let update = bar.try_recv();
+    ///
+    /// if let Some(component_id) = update {
     ///     println!("Component {:?} was updated!", component_id);
     /// } else {
     ///     println!("No new event!");
@@ -158,21 +208,39 @@ impl Bar {
             self.events = Some(self.start_loop());
         }
 
-        match self.events.as_ref().unwrap().1.try_recv() {
-            Ok(comp_id) => Some(comp_id),
-            Err(TryRecvError::Empty) => None,
-            Err(e) => Err(e).unwrap(),
+        // Process updates until the first dirty component is found
+        loop {
+            match self.events.as_ref().unwrap().1.try_recv() {
+                Ok(comp_id) => {
+                    if self.update_component(comp_id) {
+                        return Some(comp_id);
+                    }
+                }
+                Err(TryRecvError::Empty) => return None,
+                Err(e) => return Err(e).unwrap(),
+            }
         }
     }
 
-    /// Lock the configuration file.
+    // Update the component with the matching ID
+    fn update_component(&mut self, comp_id: ComponentID) -> bool {
+        for comp in self.components_mut() {
+            if comp.id() == comp_id {
+                return comp.update();
+            }
+        }
+        false
+    }
+
+    /// General bar settings.
     ///
-    /// Locks the configuration file so its state can be used to render the bar. Since this creates
-    /// a `MutexGuard`, no events will be received while the lock is held.
+    /// These settings store all settings that are not directly associated to any component. This
+    /// should only be required during startup, since it is never modified at runtime.
     ///
     /// # Examples
+    ///
     /// ```
-    /// use bar_config::Bar;
+    /// use bar_config::bar::Bar;
     /// use std::io::Cursor;
     ///
     /// let config_file = Cursor::new(String::from(
@@ -182,14 +250,141 @@ impl Bar {
     /// ));
     ///
     /// let mut bar = Bar::load(config_file).unwrap();
-    /// let config = bar.lock();
+    /// let general = bar.general();
     ///
-    /// assert_eq!(config.height, 30);
-    /// assert_eq!(config.monitors.len(), 1);
-    /// assert_eq!(config.monitors[0].name, "DVI-1");
+    /// assert_eq!(general.height, 30);
     /// ```
-    pub fn lock(&self) -> MutexGuard<Config> {
-        self.config.lock().unwrap()
+    pub fn general(&self) -> &General {
+        &self.general
+    }
+
+    /// Left bar components.
+    ///
+    /// Vector with all components which should be rendered at the left side of the bar. These
+    /// could change at any time, so this can be used after receiving an update to redraw all
+    /// components with the same alignment.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bar_config::bar::Bar;
+    /// use std::io::Cursor;
+    ///
+    /// let config_file = Cursor::new(String::from(
+    ///     "height: 30\n\
+    ///      monitors:\n\
+    ///       - { name: \"DVI-1\" }\n\
+    ///      left:\n\
+    ///       - { text: \"test\" }"
+    /// ));
+    ///
+    /// let mut bar = Bar::load(config_file).unwrap();
+    /// let left = bar.left();
+    ///
+    /// assert_eq!(left[0].text(), String::from("test"));
+    /// ```
+    pub fn left(&self) -> &Vec<Component> {
+        &self.left
+    }
+
+    /// Center bar components.
+    ///
+    /// Vector with all components which should be rendered at the center of the bar. These
+    /// could change at any time, so this can be used after receiving an update to redraw all
+    /// components with the same alignment.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bar_config::bar::Bar;
+    /// use std::io::Cursor;
+    ///
+    /// let config_file = Cursor::new(String::from(
+    ///     "height: 30\n\
+    ///      monitors:\n\
+    ///       - { name: \"DVI-1\" }\n\
+    ///      center:\n\
+    ///       - { text: \"test\" }"
+    /// ));
+    ///
+    /// let mut bar = Bar::load(config_file).unwrap();
+    /// let center = bar.center();
+    ///
+    /// assert_eq!(center[0].text(), String::from("test"));
+    /// ```
+    pub fn center(&self) -> &Vec<Component> {
+        &self.center
+    }
+
+    /// Right bar components.
+    ///
+    /// Vector with all components which should be rendered at the right side of the bar. These
+    /// could change at any time, so this can be used after receiving an update to redraw all
+    /// components with the same alignment.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bar_config::bar::Bar;
+    /// use std::io::Cursor;
+    ///
+    /// let config_file = Cursor::new(String::from(
+    ///     "height: 30\n\
+    ///      monitors:\n\
+    ///       - { name: \"DVI-1\" }\n\
+    ///      right:\n\
+    ///       - { text: \"test\" }"
+    /// ));
+    ///
+    /// let mut bar = Bar::load(config_file).unwrap();
+    /// let right = bar.right();
+    ///
+    /// assert_eq!(right[0].text(), String::from("test"));
+    /// ```
+    pub fn right(&self) -> &Vec<Component> {
+        &self.right
+    }
+
+    /// All bar components.
+    ///
+    /// Vector with all components of the bar. This can be used for performing actions on all
+    /// components independent of component alignment.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bar_config::bar::Bar;
+    /// use std::io::Cursor;
+    ///
+    /// let config_file = Cursor::new(String::from(
+    ///     "height: 30\n\
+    ///      monitors:\n\
+    ///       - { name: \"DVI-1\" }\n\
+    ///      right:\n\
+    ///       - { text: \"right\" }\n\
+    ///      center:\n\
+    ///       - { text: \"center\" }"
+    /// ));
+    ///
+    /// let mut bar = Bar::load(config_file).unwrap();
+    /// let components = bar.components();
+    ///
+    /// assert_eq!(components.len(), 2);
+    /// ```
+    pub fn components(&self) -> Vec<&Component> {
+        self.left
+            .iter()
+            .chain(&self.center)
+            .chain(&self.right)
+            .collect()
+    }
+
+    fn components_mut(&mut self) -> Vec<&mut Component> {
+        self.left
+            .iter_mut()
+            .chain(&mut self.center)
+            .chain(&mut self.right)
+            .collect()
     }
 
     /// Send an event to all components.
@@ -201,9 +396,10 @@ impl Bar {
     /// new redraw request will be queued for the [`recv`] and [`try_recv`] methods.
     ///
     /// # Examples
+    ///
     /// ```
     /// use bar_config::event::{Event, Point};
-    /// use bar_config::Bar;
+    /// use bar_config::bar::Bar;
     /// use std::io::Cursor;
     ///
     /// let config_file = Cursor::new(String::from(
@@ -219,22 +415,13 @@ impl Bar {
     /// [`recv`]: #method.recv
     /// [`try_recv`]: #method.try_recv
     pub fn notify(&mut self, event: Event) {
-        let mut config = self.lock();
-
         // Find all dirty components
         let mut dirty_comps = Vec::new();
-        let mut notify = |comps: &mut Vec<Box<Component>>| {
-            for comp in comps {
-                if comp.notify(event) {
-                    dirty_comps.push(comp.id());
-                }
+        for comp in self.components_mut() {
+            if comp.notify(event) {
+                dirty_comps.push(comp.id());
             }
-        };
-        notify(&mut config.left);
-        notify(&mut config.center);
-        notify(&mut config.right);
-
-        drop(config);
+        }
 
         if let Some((ref events_tx, _)) = self.events {
             for comp_id in dirty_comps {
@@ -248,46 +435,16 @@ impl Bar {
         let (events_tx, events_rx) = mpsc::channel();
         let bar_events_tx = events_tx.clone();
 
-        let config = self.config.clone();
+        // Combine all component events into one blocking event stream
+        let mut combined: ComponentStream = Box::new(stream::empty());
+        for comp in self.components() {
+            combined = Box::new(combined.select(comp.stream()));
+        }
+
         thread::spawn(move || {
-            // Combine all component events into one blocking iterator
-            let combined = {
-                let config = config.lock().unwrap();
-                let mut combined: ComponentStream = Box::new(stream::empty());
-                for comp in config
-                    .left
-                    .iter()
-                    .chain(&config.center)
-                    .chain(&config.right)
-                {
-                    combined = Box::new(combined.select(comp.stream()));
-                }
-                combined
-            };
-
-            // Propagate events
+            // Propagate events to main thread
             let combined = combined.for_each(move |comp_id| {
-                let mut config = config.lock().unwrap();
-
-                // Try to find the component with a matching ID and update it
-                let update_comps = |comps: &mut Vec<Box<Component>>| {
-                    if let Some(true) = comps
-                        .iter_mut()
-                        .find(|comp| comp_id == comp.id())
-                        .map(|comp| comp.update())
-                    {
-                        events_tx.send(comp_id).unwrap();
-                        true
-                    } else {
-                        false
-                    }
-                };
-
-                // Short-circuit update the component with a matching ID
-                let _ = update_comps(&mut config.left)
-                    || update_comps(&mut config.center)
-                    || update_comps(&mut config.right);
-
+                events_tx.send(comp_id).unwrap();
                 Ok(())
             });
 
@@ -297,77 +454,4 @@ impl Bar {
 
         (bar_events_tx, events_rx)
     }
-}
-
-/// Find the configuration file.
-///
-/// This looks for the configuration file of the bar in a predefined list of directories.
-/// The `name` parameter is used for the configuration file name and the extension is based
-/// on the enabled features.
-///
-/// The directories are used in the following order:
-/// ```text
-/// ~/.config/name.ext
-/// ~/.name.ext
-/// /etc/name/name.ext
-/// ```
-///
-/// The file endings map to the specified library features:
-///
-/// Feature  | Extension
-/// ---------|----------
-/// default  | yml
-/// toml-fmt | toml
-/// json-fmt | json
-///
-/// # Errors
-///
-/// This method will fail if the configuration file cannot be opened. If there was no file present
-/// in any of the directories, the [`io::ErrorKind::NotFound`] error will be returned.
-///
-/// # Examples
-///
-/// ```
-/// use bar_config::config_file;
-/// use std::io::ErrorKind;
-///
-/// let file_result = config_file("mybar");
-/// assert_eq!(file_result.err().unwrap().kind(), ErrorKind::NotFound);
-/// ```
-///
-/// [`io::ErrorKind::NotFound`]: https://doc.rust-lang.org/std/io/enum.ErrorKind.html#variant.NotFound
-pub fn config_file(name: &str) -> Result<File, IOError> {
-    for path in &PATH_LOAD_ORDER[..] {
-        let mut path = path.to_string();
-        #[cfg_attr(feature = "cargo-clippy", allow(ifs_same_cond))]
-        let extension = if cfg!(feature = "toml-fmt") && !cfg!(feature = "json-fmt") {
-            "toml"
-        } else if cfg!(feature = "json-fmt") && !cfg!(feature = "toml-fmt") {
-            "json"
-        } else {
-            "yml"
-        };
-        path = path.replace("{ext}", extension);
-        path = path.replace(
-            "{home}",
-            &dirs::home_dir()
-                .and_then(|p| Some(p.to_string_lossy().to_string()))
-                .unwrap_or_else(String::new),
-        );
-        path = path.replace(
-            "{config}",
-            &dirs::config_dir()
-                .and_then(|p| Some(p.to_string_lossy().to_string()))
-                .unwrap_or_else(String::new),
-        );
-        path = path.replace("{name}", name);
-
-        let metadata = Path::new(&path).metadata();
-        if let Ok(metadata) = metadata {
-            if metadata.is_file() {
-                return Ok(File::open(path)?);
-            }
-        }
-    }
-    Err(IOError::new(ErrorKind::NotFound, "no config file present"))
 }

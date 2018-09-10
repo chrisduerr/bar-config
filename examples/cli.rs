@@ -1,6 +1,6 @@
 use std::io::Cursor;
 
-use bar_config::Bar;
+use bar_config::bar::Bar;
 
 fn main() {
     // Create input configuration input with three components
@@ -34,16 +34,8 @@ fn main() {
 
 // Prints the text of every component in the configuration
 fn print_bar(bar: &Bar) {
-    let config = bar.lock();
-    for comp in config
-        .left
-        .iter()
-        .chain(&config.center)
-        .chain(&config.right)
-    {
-        if let Some(text) = comp.text() {
-            print!("{}\t", text);
-        }
+    for comp in bar.components() {
+        print!("{}\t", comp.text());
     }
     println!("");
 }

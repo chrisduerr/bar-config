@@ -9,7 +9,7 @@
 //! Here's a minimal example for sending events to the config:
 //! ```
 //! use bar_config::event::{Event, Point};
-//! use bar_config::Bar;
+//! use bar_config::bar::Bar;
 //! use std::io::Cursor;
 //!
 //! let config_file = Cursor::new(String::from(

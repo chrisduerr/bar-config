@@ -1,61 +1,38 @@
-//! Bar configuration state.
-//!
-//! This module contains everything required to express the any state of the bar. The root
-//! element ([`Config`]) can be accessed through the [`Bar`] using the [`load`] and [`lock`] methods.
-//!
-//! # Examples
-//!
-//! ```
-//! use bar_config::Bar;
-//! use std::io::Cursor;
-//!
-//! let config_file = Cursor::new(String::from(
-//!     "height: 30\n\
-//!      monitors:\n\
-//!       - { name: \"DVI-1\" }"
-//! ));
-//!
-//! let bar = Bar::load(config_file).unwrap();
-//! let config = bar.lock();
-//!
-//! assert_eq!(config.height, 30);
-//! assert_eq!(config.monitors.len(), 1);
-//! assert_eq!(config.monitors[0].name, "DVI-1");
-//! ```
-//!
-//! [`Config`]: struct.Config.html
-//! [`Bar`]: ../struct.Bar.html
-//! [`load`]: ../struct.Bar.html#method.load
-//! [`lock`]: ../struct.Bar.html#method.lock
+#[cfg(all(feature = "json-fmt", not(feature = "toml-fmt")))]
+use serde_json as serde_fmt;
+#[cfg(not(any(feature = "toml-fmt", feature = "json-fmt")))]
+use serde_yaml as serde_fmt;
+#[cfg(all(feature = "toml-fmt", not(feature = "json-fmt")))]
+use toml as serde_fmt;
 
+use image::{self, DynamicImage};
 use serde::de::{Deserializer, Error};
 use serde::Deserialize;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use crate::components::Component;
-
-/// Root element of the bar configuration.
-///
-/// This element contains the complete state of the bar necessary to render it.
-#[derive(Debug, Deserialize)]
-pub struct Config {
+/// Root element of the bar configuration file.
+#[derive(Deserialize)]
+pub(crate) struct Config {
     pub height: u8,
-    pub position: Option<Position>,
-    pub background: Option<Background>,
+    #[serde(default)]
+    pub position: Position,
+    #[serde(default)]
+    pub background: Background,
     pub border: Option<Border>,
     #[serde(
         deserialize_with = "deserialize_monitors",
         skip_serializing_if = "Vec::is_empty"
     )]
     pub monitors: Vec<Monitor>,
-    pub defaults: Option<ComponentSettings>,
+    #[serde(default)]
+    pub defaults: ComponentSettings,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub left: Vec<Box<Component>>,
+    pub left: Vec<Component>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub center: Vec<Box<Component>>,
+    pub center: Vec<Component>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub right: Vec<Box<Component>>,
+    pub right: Vec<Component>,
 }
 
 // Require at least one monitor
@@ -77,8 +54,22 @@ where
     }
 }
 
-/// Default options available for every component.
-#[derive(Clone, Debug, Eq, PartialEq, Hash, Deserialize)]
+#[derive(Clone, Deserialize)]
+pub(crate) struct Component {
+    #[serde(default)]
+    pub name: String,
+    #[serde(flatten)]
+    pub settings: ComponentSettings,
+    #[serde(flatten)]
+    pub extra: serde_fmt::Value,
+}
+
+/// Settings of a component.
+///
+/// These component settings represent most of the component's state required to draw it. All
+/// components automatically inherit the default configuration options from the bar as fallbacks,
+/// however all fields are still optional.
+#[derive(Clone, Deserialize, Default)]
 pub struct ComponentSettings {
     pub foreground: Option<Color>,
     pub background: Option<Background>,
@@ -88,14 +79,38 @@ pub struct ComponentSettings {
     pub offset_y: Option<i8>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fonts: Vec<Font>,
-    pub border: Option<Border>,
+}
+
+impl ComponentSettings {
+    pub(crate) fn fallback(&mut self, fallback: &ComponentSettings) {
+        fn select<T: Clone>(main: &mut Option<T>, fallback: &Option<T>) {
+            if main.is_none() {
+                *main = fallback.clone();
+            }
+        }
+
+        select(&mut self.foreground, &fallback.foreground);
+        select(&mut self.background, &fallback.background);
+        select(&mut self.width, &fallback.width);
+        select(&mut self.padding, &fallback.padding);
+        select(&mut self.offset_x, &fallback.offset_x);
+        select(&mut self.offset_y, &fallback.offset_y);
+
+        self.fonts.append(&mut fallback.fonts.clone());
+    }
 }
 
 /// Background of a component or the bar.
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone)]
 pub enum Background {
-    Image(PathBuf),
+    Image(DynamicImage),
     Color(Color),
+}
+
+impl Default for Background {
+    fn default() -> Self {
+        Background::Color(Color::new(0, 0, 0, 0))
+    }
 }
 
 impl<'de> Deserialize<'de> for Background {
@@ -110,10 +125,10 @@ impl<'de> Deserialize<'de> for Background {
                         .map_err(D::Error::custom)
                         .map(Background::Color)
                 } else {
-                    Path::new(&text)
-                        .canonicalize()
-                        .map_err(D::Error::custom)
+                    let path = Path::new(&text).canonicalize().map_err(D::Error::custom)?;
+                    image::open(path)
                         .map(Background::Image)
+                        .map_err(D::Error::custom)
                 }
             }
             Err(err) => Err(err),
@@ -124,7 +139,7 @@ impl<'de> Deserialize<'de> for Background {
 /// Distinct identification for a font.
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Deserialize)]
 pub struct Font {
-    pub description: String,
+    pub name: String,
     pub size: u8,
 }
 
@@ -149,19 +164,30 @@ pub struct Border {
 }
 
 /// Available positions for the bar.
+///
+/// These positions indicate where on the screen the bar should be displayed. The position `Top`
+/// would indicate that the bar should be rendered at the top of the specified [`Monitor`].
+///
+/// [`Monitor`]: struct.Monitor.html
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Deserialize)]
 pub enum Position {
     Top,
     Bottom,
 }
 
+impl Default for Position {
+    fn default() -> Self {
+        Position::Bottom
+    }
+}
+
 /// RGBA color specified as four values from 0 to 255.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub struct Color {
-    r: u8,
-    g: u8,
-    b: u8,
-    a: u8,
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+    pub a: u8,
 }
 
 impl Color {
@@ -189,6 +215,42 @@ impl Color {
         };
 
         Ok(Color::new(r, g, b, a))
+    }
+
+    /// Convert the colors from whole numbers to floating point fractions.
+    ///
+    /// This converts the RGBA colors from the range 0..=255 to the range 0..1.0.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::io::Cursor;
+    ///
+    /// use bar_config::bar::Bar;
+    ///
+    /// let input = Cursor::new(String::from("\
+    ///      height: 30\n\
+    ///      monitors:\n\
+    ///      - { name: \"DVI-1\" }\n\
+    ///      left:\n\
+    ///      - { foreground: \"#FF00FF99\" }",
+    /// ));
+    ///
+    /// let bar = Bar::load(input).unwrap();
+    ///
+    /// let foreground = bar.left()[0].settings().foreground.unwrap().as_f64();
+    /// assert_eq!(foreground.0, 1.0);
+    /// assert_eq!(foreground.1, 0.0);
+    /// assert_eq!(foreground.2, 1.0);
+    /// assert_eq!(foreground.3, 0.6);
+    /// ```
+    pub fn as_f64(self) -> (f64, f64, f64, f64) {
+        (
+            f64::from(self.r) / 255.,
+            f64::from(self.g) / 255.,
+            f64::from(self.b) / 255.,
+            f64::from(self.a) / 255.,
+        )
     }
 }
 
