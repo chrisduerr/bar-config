@@ -1,3 +1,6 @@
+#![feature(tool_lints)]
+#![allow(clippy::blacklisted_name)]
+
 use std::io::Cursor;
 
 use bar_config;

@@ -1,7 +1,11 @@
+#![feature(tool_lints)]
+#![allow(clippy::blacklisted_name)]
+
 use std::io::Cursor;
 
 use bar_config::bar::Bar;
 
+#[allow(clippy::float_cmp)]
 #[test]
 fn parse_colors() {
     let input = Cursor::new(String::from(
@@ -22,6 +26,7 @@ fn parse_colors() {
     assert_eq!(foreground.a, 153);
 }
 
+#[allow(clippy::float_cmp)]
 #[test]
 fn colors_as_f64() {
     let input = Cursor::new(String::from(
